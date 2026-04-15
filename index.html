@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>聊天室</title>
+    <title>聊天室（跨设备互通）</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial; }
         body { max-width: 600px; margin: 20px auto; padding: 0 10px; }
@@ -11,47 +11,102 @@
         .msg { margin: 5px 0; padding: 8px; border-radius: 8px; max-width: 70%; }
         .my { background: #007bff; color: white; margin-left: auto; }
         .other { background: #eee; color: #333; margin-right: auto; }
+        .system { background: #f8f9fa; color: #666; text-align: center; margin: 5px auto; max-width: 90%; font-size: 14px; }
         #inputArea { display: flex; gap: 5px; }
         #msgInput { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
         #sendBtn { padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        #sendBtn:disabled { background: #6c757d; cursor: not-allowed; }
     </style>
 </head>
 <body>
     <div id="msgBox"></div>
     <div id="inputArea">
-        <input type="text" id="msgInput" placeholder="输入消息..." maxlength="100">
-        <button id="sendBtn">发送</button>
+        <input type="text" id="msgInput" placeholder="输入消息，回车发送..." maxlength="100">
+        <button id="sendBtn" disabled>发送</button>
     </div>
 
     <script>
-        // 用免费公共WebSocket服务器，直接跨设备互通
-        const ws = new WebSocket("wss://echo.websocket.org");
+        // 改用PieSocket免费公共聊天室（支持多设备互通，固定频道：12345）
+        const WS_URL = "wss://demo.piesocket.com/v3/channel_12345?api_key=VCXCEuvhGc8bXH5u3WLxsq29iDCj3J6p8fRLfe1a";
+        let ws;
         const msgBox = document.getElementById("msgBox");
         const msgInput = document.getElementById("msgInput");
         const sendBtn = document.getElementById("sendBtn");
 
-        // 接收消息
-        ws.onmessage = (e) => {
-            addMsg(e.data, false);
-        };
+        // 初始化WebSocket连接
+        function initWebSocket() {
+            ws = new WebSocket(WS_URL);
+            
+            // 连接成功
+            ws.onopen = () => {
+                sendBtn.disabled = false;
+                addMsg("✅ 已连接聊天室，可开始聊天", "system");
+            };
+
+            // 接收消息（别人发的消息）
+            ws.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                // 排除自己发的消息，只显示他人消息
+                if (data.event === "message" && data.channel === "channel_12345") {
+                    addMsg(data.value, false);
+                }
+            };
+
+            // 连接关闭
+            ws.onclose = () => {
+                sendBtn.disabled = true;
+                addMsg("❌ 连接断开，正在重连...", "system");
+                // 自动重连
+                setTimeout(initWebSocket, 2000);
+            };
+
+            // 连接错误
+            ws.onerror = (err) => {
+                addMsg("❌ 连接出错", "system");
+                console.error("WebSocket错误：", err);
+            };
+        }
 
         // 发送消息
-        sendBtn.onclick = () => {
+        function sendMessage() {
             const text = msgInput.value.trim();
-            if (!text) return;
-            ws.send(text);
+            if (!text || ws.readyState !== WebSocket.OPEN) return;
+            
+            // 发送消息到服务器
+            ws.send(JSON.stringify({
+                event: "message",
+                channel: "channel_12345",
+                value: text
+            }));
+            
+            // 渲染自己的消息
             addMsg(text, true);
             msgInput.value = "";
+        }
+
+        // 绑定事件
+        sendBtn.onclick = sendMessage;
+        // 回车发送
+        msgInput.onkeydown = (e) => {
+            if (e.key === "Enter") sendMessage();
         };
 
         // 渲染消息
-        function addMsg(text, isMy) {
+        function addMsg(text, type) {
             const div = document.createElement("div");
-            div.className = `msg ${isMy ? "my" : "other"}`;
+            if (type === "system") {
+                div.className = "msg system";
+            } else {
+                div.className = `msg ${type ? "my" : "other"}`;
+            }
             div.innerText = text;
             msgBox.appendChild(div);
+            // 自动滚动到底部
             msgBox.scrollTop = msgBox.scrollHeight;
         }
+
+        // 启动连接
+        initWebSocket();
     </script>
 </body>
 </html>
